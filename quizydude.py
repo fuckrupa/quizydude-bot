@@ -96,7 +96,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         f"👋 Hey {user.mention_html()}!\n\n"
         "✨ Welcome to the Ultimate Quiz Challenge Bot! ✨\n\n"
-        "🎯 Categories:\n"
+        "Here, you can test your knowledge, have fun, flirt a little, or even go crazy with different types of quizzes!\n\n"
+        "🎯 Categories you can explore:\n"
         " - 🔥 /xquiz — Steamy Sex Quiz\n"
         " - ❤️ /hquiz — Horny Quiz\n"
         " - 💋 /fquiz — Flirty Quiz\n"
@@ -104,15 +105,19 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         " - 🤪 /cquiz — Crazy Quiz\n"
         " - 📚 /squiz — Study Quiz\n"
         " - 🎲 /aquiz — Random Mix\n\n"
-        "🏆 Answer right, climb the leaderboard!\n"
-        "❌ Wrong? No worries, try again!\n\n"
-        "👉 Use /help if needed.\n🎉 LET'S PLAY!"
+        "🏆 Correct answers will boost your rank on the leaderboard!\n"
+        "❌ Wrong answers? No worries, practice makes perfect!\n\n"
+        "⭐ Start now, challenge your friends, and become the Quiz Master!\n\n"
+        "👉 Use /help if you need guidance.\n\n"
+        "🎉 LET'S PLAY & HAVE FUN!"
     )
     await update.message.reply_html(msg, reply_markup=keyboard)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 <b>📚 Quiz Bot Help</b>
+
+Get ready to test your knowledge with these fun quizzes! 🎉
 
 📝 <b>Quiz Categories:</b>
 - /xquiz <i>Sex Quiz</i> 🔥
@@ -121,9 +126,12 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 - /lolquiz <i>Funny Quiz</i> 😂
 - /cquiz <i>Crazy Quiz</i> 🤪
 - /squiz <i>Study Quiz</i> 📚
-- /aquiz <i>Random Mix</i> 🎲
+- /aquiz <i>Random Mixed Quiz</i> 🎲
 
-🏆 /statistics — View leaderboard
+🏆 <b>Leaderboard:</b>
+- /statistics See the current leaderboard 📊
+
+💡 <b>Tip:</b> Answer polls correctly to climb the leaderboard! 🚀
 """
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     await update.message.reply_html(help_text)
@@ -236,7 +244,7 @@ async def run_bot():
     TOKEN = os.environ.get("BOT_TOKEN")
     app = ApplicationBuilder().token(TOKEN).build()
 
-    app.add_handler(CommandHandler("start", start))
+        app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
     app.add_handler(CommandHandler("xquiz", xquiz))
     app.add_handler(CommandHandler("hquiz", hquiz))
@@ -248,19 +256,20 @@ async def run_bot():
     app.add_handler(CommandHandler("statistics", show_statistics))
     app.add_handler(PollAnswerHandler(receive_poll_answer))
 
+    commands = [
+        BotCommand("start", "Start the bot"),
+        BotCommand("help", "How to use the bot"),
+        BotCommand("xquiz", "Sex Quiz"),
+        BotCommand("hquiz", "Horny Quiz"),
+        BotCommand("fquiz", "Flirty Quiz"),
+        BotCommand("lolquiz", "Funny Quiz"),
+        BotCommand("cquiz", "Crazy Quiz"),
+        BotCommand("squiz", "Study Quiz"),
+        BotCommand("aquiz", "All Random Quiz"),
+        BotCommand("statistics", "Show leaderboard"),
+    ]
     async def set_commands(application):
-        await application.bot.set_my_commands([
-            BotCommand("start", "Start the bot"),
-            BotCommand("help", "How to use the bot"),
-            BotCommand("xquiz", "Sex Quiz"),
-            BotCommand("hquiz", "Horny Quiz"),
-            BotCommand("fquiz", "Flirty Quiz"),
-            BotCommand("lolquiz", "Funny Quiz"),
-            BotCommand("cquiz", "Crazy Quiz"),
-            BotCommand("squiz", "Study Quiz"),
-            BotCommand("aquiz", "All Random Quiz"),
-            BotCommand("statistics", "Show leaderboard"),
-        ])
+        await application.bot.set_my_commands(commands)
     app.post_init = set_commands
 
     # Create DB on startup
