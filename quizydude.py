@@ -5,6 +5,7 @@ import sqlite3
 import asyncio
 import copy
 from http.server import BaseHTTPRequestHandler, HTTPServer
+
 from telegram import Update, Poll, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes
@@ -162,13 +163,13 @@ async def send_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_typ
     }
     context.bot_data.update(payload)
 
-async def xquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "xquiz")
-async def hquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "hquiz")
-async def fquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "fquiz")
-async def lolquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "lolquiz")
-async def cquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "cquiz")
-async def squiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "squiz")
-async def aquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "aquiz")
+async def xquiz(update, context): await send_quiz(update, context, "xquiz")
+async def hquiz(update, context): await send_quiz(update, context, "hquiz")
+async def fquiz(update, context): await send_quiz(update, context, "fquiz")
+async def lolquiz(update, context): await send_quiz(update, context, "lolquiz")
+async def cquiz(update, context): await send_quiz(update, context, "cquiz")
+async def squiz(update, context): await send_quiz(update, context, "squiz")
+async def aquiz(update, context): await send_quiz(update, context, "aquiz")
 
 async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answer = update.poll_answer
@@ -269,6 +270,7 @@ async def run_bot():
     async def set_commands(application): await application.bot.set_my_commands(commands)
     app.post_init = set_commands
 
+    # Ensure database exists
     conn_init = get_connection()
     cur_init = conn_init.cursor()
     cur_init.execute("""
@@ -283,9 +285,7 @@ async def run_bot():
     cur_init.close()
     conn_init.close()
 
-    await app.initialize()
-    await app.start()
-    await app.updater.start_polling()
+    await app.run_polling()
 
 async def main():
     await asyncio.gather(
