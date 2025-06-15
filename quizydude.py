@@ -4,28 +4,19 @@ import random
 import sqlite3
 import asyncio
 import copy
-
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from telegram import Update, Poll, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes
 
-# ─── Imports for Dummy HTTP Server ──────────────────────────────────────────
-import threading
-from http.server import BaseHTTPRequestHandler, HTTPServer
-
-# --------------------------------
-# 2) YOUR TELEGRAM BOT FUNCTIONALITY
-# --------------------------------
-
-# Lower logging level to reduce I/O overhead
+# ─── Logging Setup ──────────────────────────────
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     level=logging.WARNING
 )
 logger = logging.getLogger(__name__)
 
-# --- DATABASE SETUP ---
-
+# ─── Database Setup ─────────────────────────────
 DB_PATH = "quizbot.db"
 
 def get_connection():
@@ -33,8 +24,7 @@ def get_connection():
     conn.row_factory = sqlite3.Row
     return conn
 
-# --- QUIZ QUESTIONS SETUP ---
-# You should define your quizzes dict somewhere above
+# ─── Quiz Questions ─────────────────────────────
 quizzes = {
     "xquiz": [("Question X1?", ["A", "B", "C"], 0)],
     "hquiz": [("Question H1?", ["A", "B", "C"], 1)],
@@ -43,23 +33,19 @@ quizzes = {
     "cquiz": [("Question C1?", ["A", "B", "C"], 1)],
     "squiz": [("Question S1?", ["A", "B", "C"], 2)],
 }
-
-# Merge all into “aquiz” (random mix)
 all_questions = []
 for lst in quizzes.values():
     all_questions.extend(lst)
 quizzes["aquiz"] = all_questions
 
-# --- SHUFFLED QUIZZES SETUP ---
 shuffled_quizzes = {}
 def reset_shuffled(quiz_type):
     shuffled_quizzes[quiz_type] = copy.deepcopy(quizzes[quiz_type])
     random.shuffle(shuffled_quizzes[quiz_type])
-
 for quiz_type in quizzes:
     reset_shuffled(quiz_type)
 
-# --- USER MANAGEMENT ---
+# ─── User Management ─────────────────────────────
 def ensure_user_sync(user_id, username):
     conn_local = get_connection()
     cur = conn_local.cursor()
@@ -91,7 +77,7 @@ def update_score(user_id: int, correct: bool):
         cur.close()
         conn_local.close()
 
-# --- BOT HANDLERS ---
+# ─── Command Handlers ─────────────────────────────
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
     await ensure_user(user.id, user.username or user.first_name)
@@ -110,8 +96,7 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
         f"👋 Hey {user.mention_html()}!\n\n"
         "✨ Welcome to the Ultimate Quiz Challenge Bot! ✨\n\n"
-        "Here, you can test your knowledge, have fun, flirt a little, or even go crazy with different types of quizzes!\n\n"
-        "🎯 Categories you can explore:\n"
+        "🎯 Categories:\n"
         " - 🔥 /xquiz — Steamy Sex Quiz\n"
         " - ❤️ /hquiz — Horny Quiz\n"
         " - 💋 /fquiz — Flirty Quiz\n"
@@ -119,19 +104,15 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
         " - 🤪 /cquiz — Crazy Quiz\n"
         " - 📚 /squiz — Study Quiz\n"
         " - 🎲 /aquiz — Random Mix\n\n"
-        "🏆 Correct answers will boost your rank on the leaderboard!\n"
-        "❌ Wrong answers? No worries, practice makes perfect!\n\n"
-        "⭐ Start now, challenge your friends, and become the Quiz Master!\n\n"
-        "👉 Use /help if you need guidance.\n\n"
-        "🎉 LET'S PLAY & HAVE FUN!"
+        "🏆 Answer right, climb the leaderboard!\n"
+        "❌ Wrong? No worries, try again!\n\n"
+        "👉 Use /help if needed.\n🎉 LET'S PLAY!"
     )
     await update.message.reply_html(msg, reply_markup=keyboard)
 
 async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = """
 <b>📚 Quiz Bot Help</b>
-
-Get ready to test your knowledge with these fun quizzes! 🎉
 
 📝 <b>Quiz Categories:</b>
 - /xquiz <i>Sex Quiz</i> 🔥
@@ -140,12 +121,9 @@ Get ready to test your knowledge with these fun quizzes! 🎉
 - /lolquiz <i>Funny Quiz</i> 😂
 - /cquiz <i>Crazy Quiz</i> 🤪
 - /squiz <i>Study Quiz</i> 📚
-- /aquiz <i>Random Mixed Quiz</i> 🎲
+- /aquiz <i>Random Mix</i> 🎲
 
-🏆 <b>Leaderboard:</b>
-- /statistics See the current leaderboard 📊
-
-💡 <b>Tip:</b> Answer polls correctly to climb the leaderboard! 🚀
+🏆 /statistics — View leaderboard
 """
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
     await update.message.reply_html(help_text)
@@ -171,7 +149,7 @@ async def send_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_typ
         correct_option_id=correct_id,
         is_anonymous=False,
         allows_multiple_answers=False,
-        open_period=60,  # 60 seconds timer
+        open_period=60,
     )
     payload = {
         msg.poll.id: {
@@ -182,26 +160,13 @@ async def send_quiz(update: Update, context: ContextTypes.DEFAULT_TYPE, quiz_typ
     }
     context.bot_data.update(payload)
 
-async def xquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "xquiz")
-
-async def hquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "hquiz")
-
-async def fquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "fquiz")
-
-async def lolquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "lolquiz")
-
-async def cquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "cquiz")
-
-async def squiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "squiz")
-
-async def aquiz(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await send_quiz(update, context, "aquiz")
+async def xquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "xquiz")
+async def hquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "hquiz")
+async def fquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "fquiz")
+async def lolquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "lolquiz")
+async def cquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "cquiz")
+async def squiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "squiz")
+async def aquiz(update: Update, context: ContextTypes.DEFAULT_TYPE): await send_quiz(update, context, "aquiz")
 
 async def receive_poll_answer(update: Update, context: ContextTypes.DEFAULT_TYPE):
     answer = update.poll_answer
@@ -220,10 +185,7 @@ async def delete_after_delay(msg, delay: int):
         pass
 
 async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    # Show typing indicator before fetching data
     await context.bot.send_chat_action(chat_id=update.effective_chat.id, action=ChatAction.TYPING)
-
-    # Fetch top users from a fresh connection
     conn_local = get_connection()
     cur = conn_local.cursor()
     try:
@@ -244,7 +206,7 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
         try:
             user = await context.bot.get_chat(uid)
             mention = f"{user.mention_html()}"
-        except Exception:
+        except:
             mention = f"<i>{username or 'Unknown'}</i>"
         icon = "🥇" if i == 1 else "🥈" if i == 2 else "🥉" if i == 3 else f"{i}"
         text += f"{icon} {mention} — W: {wins} & L: {losses}\n"
@@ -252,45 +214,23 @@ async def show_statistics(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = await update.message.reply_html(text)
     asyncio.create_task(delete_after_delay(msg, 60))
 
-# --- MAIN ENTRYPOINT ---
-def main():
-    # 2) Build and run the Telegram bot
-    TOKEN = os.environ.get("BOT_TOKEN")
-    app = ApplicationBuilder().token(TOKEN).build()
-
-    # Ensure “users” table exists (moved here so we only create on startup)
-    conn_init = get_connection()
-    cur_init = conn_init.cursor()
-    cur_init.execute(
-        """
-        CREATE TABLE IF NOT EXISTS users (
-            user_id INTEGER PRIMARY KEY,
-            username TEXT,
-            wins INTEGER DEFAULT 0,
-            losses INTEGER DEFAULT 0
-        )
-        """
-    )
-    conn_init.commit()
-    cur_init.close()
-    conn_init.close()
-    
-# ─── Dummy HTTP Server to Keep Render Happy ─────────────────────────────────
+# ─── Dummy HTTP Server ─────────────────────────────
 class DummyHandler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
         self.wfile.write(b"AFK bot is alive!")
 
-    def do_HEAD(self):
-        self.send_response(200)
-        self.end_headers()
-
-def start_dummy_server():
-    port = int(os.environ.get("PORT", 10000))  # Render injects this
+async def start_http_server():
+    port = int(os.environ.get("PORT", 10000))
     server = HTTPServer(("0.0.0.0", port), DummyHandler)
     print(f"Dummy server listening on port {port}")
-    server.serve_forever()
+    await asyncio.to_thread(server.serve_forever)
+
+# ─── Main Entrypoint ─────────────────────────────
+async def run_bot():
+    TOKEN = os.environ.get("BOT_TOKEN")
+    app = ApplicationBuilder().token(TOKEN).build()
 
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", help_command))
@@ -304,25 +244,45 @@ def start_dummy_server():
     app.add_handler(CommandHandler("statistics", show_statistics))
     app.add_handler(PollAnswerHandler(receive_poll_answer))
 
-    commands = [
-        BotCommand("start", "Start the bot"),
-        BotCommand("help", "How to use the bot"),
-        BotCommand("xquiz", "Sex Quiz"),
-        BotCommand("hquiz", "Horny Quiz"),
-        BotCommand("fquiz", "Flirty Quiz"),
-        BotCommand("lolquiz", "Funny Quiz"),
-        BotCommand("cquiz", "Crazy Quiz"),
-        BotCommand("squiz", "Study Quiz"),
-        BotCommand("aquiz", "All Random Quiz"),
-        BotCommand("statistics", "Show leaderboard"),
-    ]
     async def set_commands(application):
-        await application.bot.set_my_commands(commands)
+        await application.bot.set_my_commands([
+            BotCommand("start", "Start the bot"),
+            BotCommand("help", "How to use the bot"),
+            BotCommand("xquiz", "Sex Quiz"),
+            BotCommand("hquiz", "Horny Quiz"),
+            BotCommand("fquiz", "Flirty Quiz"),
+            BotCommand("lolquiz", "Funny Quiz"),
+            BotCommand("cquiz", "Crazy Quiz"),
+            BotCommand("squiz", "Study Quiz"),
+            BotCommand("aquiz", "All Random Quiz"),
+            BotCommand("statistics", "Show leaderboard"),
+        ])
     app.post_init = set_commands
 
-    app.run_polling()
+    # Create DB on startup
+    conn_init = get_connection()
+    cur_init = conn_init.cursor()
+    cur_init.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            username TEXT,
+            wins INTEGER DEFAULT 0,
+            losses INTEGER DEFAULT 0
+        )
+    """)
+    conn_init.commit()
+    cur_init.close()
+    conn_init.close()
+
+    await app.initialize()
+    await app.start()
+    await app.updater.start_polling()
+
+async def main():
+    await asyncio.gather(
+        run_bot(),
+        start_http_server()
+    )
 
 if __name__ == "__main__":
-        # Start dummy HTTP server (needed for Render health check)
-    threading.Thread(target=start_dummy_server, daemon=True).start()
-    main()
+    asyncio.run(main())
