@@ -15,6 +15,10 @@ from aiogram.filters import Command
 from aiogram.client.default import DefaultBotProperties
 from aiogram.exceptions import TelegramAPIError, TelegramBadRequest
 
+# ─── Imports for Dummy HTTP Server ──────────────────────────────────────────
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+
 # ----------------------------
 # Logging configuration
 # ----------------------------
@@ -312,12 +316,12 @@ async def cmd_start(message: types.Message) -> None:
         
         kb = InlineKeyboardMarkup(inline_keyboard=[
             [
-                InlineKeyboardButton(text="📢 Updates", url="https://t.me/WorkGlows"),
-                InlineKeyboardButton(text="💬 Support", url="https://t.me/TheCryptoElders"),
+                InlineKeyboardButton(text="Updates", url="https://t.me/WorkGlows"),
+                InlineKeyboardButton(text="Support", url="https://t.me/TheCryptoElders"),
             ],
             [
                 InlineKeyboardButton(
-                    text="➕ Add Me To Your Group",
+                    text="Add Me To Your Group",
                     url=f"https://t.me/{(await bot.get_me()).username}?startgroup=true"
                 ) if bot else InlineKeyboardButton(text="Add Me", url="https://t.me/")
             ]
@@ -624,6 +628,23 @@ async def graceful_shutdown() -> None:
         # Force exit
         sys.exit(0)
 
+# ─── Dummy HTTP Server to Keep Render Happy ─────────────────────────────────
+class DummyHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive!")
+
+    def do_HEAD(self):
+        self.send_response(200)
+        self.end_headers()
+
+def start_dummy_server():
+    port = int(os.environ.get("PORT", 10000))  # Render injects this
+    server = HTTPServer(("0.0.0.0", port), DummyHandler)
+    print(f"Dummy server listening on port {port}")
+    server.serve_forever()
+
 async def main() -> None:
     """Main application entry point."""
     global bot
@@ -660,10 +681,13 @@ async def main() -> None:
         await graceful_shutdown()
 
 if __name__ == "__main__":
+    # Start dummy HTTP server (needed for Render health check)
+    threading.Thread(target=start_dummy_server, daemon=True).start()
+    
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
         logger.info("Bot stopped by user")
     except Exception as e:
-        logger.error(f"Unexpected error: {e}")
+        logger.exception("Unexpected error")  # Better for full traceback
         sys.exit(1)
