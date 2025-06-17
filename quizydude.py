@@ -1,3 +1,12 @@
+#!/usr/bin/env python3
+# monkey-patch for PTB 20.6 __polling_cleanup_cb bug
+try:
+    from telegram.ext._updater import Updater
+    if not hasattr(Updater, "_Updater__polling_cleanup_cb"):
+        Updater._Updater__polling_cleanup_cb = None
+except ImportError:
+    pass
+
 import os
 import logging
 import random
@@ -8,6 +17,8 @@ import copy
 from telegram import Update, Poll, BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.constants import ChatAction
 from telegram.ext import ApplicationBuilder, CommandHandler, PollAnswerHandler, ContextTypes
+
+# ... rest of your code unchanged ...
 
 # --------------------------------
 # 2) YOUR TELEGRAM BOT FUNCTIONALITY
