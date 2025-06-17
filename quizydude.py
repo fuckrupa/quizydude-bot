@@ -1,14 +1,15 @@
-#!/usr/bin/env python3
+l#!/usr/bin/env python3
 import os
 import logging
 import random
 import copy
 import asyncio
+import signal
+import sys
 
 import aiosqlite
 from aiogram import Bot, Dispatcher, types
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup, BotCommand, Poll
-from aiogram.utils.keyboard import InlineKeyboardBuilder
+from aiogram.types import InlineKeyboardButton, BotCommand, Poll
 from aiogram.filters import Command
 
 # ----------------------------
@@ -16,7 +17,7 @@ from aiogram.filters import Command
 # ----------------------------
 logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    level=logging.WARNING
+    level=logging.INFO
 )
 logger = logging.getLogger(__name__)
 
@@ -24,41 +25,45 @@ logger = logging.getLogger(__name__)
 # Database setup
 # ----------------------------
 DATABASE_PATH = os.environ.get("DATABASE_PATH", "quiz.db")
+db: aiosqlite.Connection
 
 async def init_db():
-    """Initialize the SQLite database and ensure the users table exists."""
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute("""
-            CREATE TABLE IF NOT EXISTS users (
-                user_id   INTEGER PRIMARY KEY,
-                username  TEXT,
-                wins      INTEGER DEFAULT 0,
-                losses    INTEGER DEFAULT 0
-            )
-        """)
-        await db.commit()
+    """Initialize a single long‐lived SQLite connection and ensure the users table exists."""
+    global db
+    db = await aiosqlite.connect(DATABASE_PATH)
+    await db.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id   INTEGER PRIMARY KEY,
+            username  TEXT,
+            wins      INTEGER DEFAULT 0,
+            losses    INTEGER DEFAULT 0
+        )
+    """)
+    await db.commit()
+
+async def close_db():
+    """Close the shared database connection."""
+    await db.close()
 
 async def ensure_user(user_id: int, username: str):
     """Insert a new user if not exists."""
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
-        exists = await cursor.fetchone()
-        if not exists:
-            await db.execute(
-                "INSERT INTO users (user_id, username) VALUES (?, ?)",
-                (user_id, username)
-            )
-            await db.commit()
+    cursor = await db.execute("SELECT 1 FROM users WHERE user_id = ?", (user_id,))
+    exists = await cursor.fetchone()
+    if not exists:
+        await db.execute(
+            "INSERT INTO users (user_id, username) VALUES (?, ?)",
+            (user_id, username)
+        )
+        await db.commit()
 
 async def update_score(user_id: int, correct: bool):
     """Increment wins or losses for a user."""
     column = "wins" if correct else "losses"
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        await db.execute(
-            f"UPDATE users SET {column} = {column} + 1 WHERE user_id = ?",
-            (user_id,)
-        )
-        await db.commit()
+    await db.execute(
+        f"UPDATE users SET {column} = {column} + 1 WHERE user_id = ?",
+        (user_id,)
+    )
+    await db.commit()
 
 # ----------------------------
 # Quiz data setup
@@ -71,11 +76,11 @@ quizzes = {
     "cquiz": [("Question C1❔", ["A", "B", "C"], 1)],
     "squiz": [("Question S1❔", ["A", "B", "C"], 2)],
 }
-# Merge into random mix
-all_questions = [q for qs in quizzes.values() for q in qs]
-quizzes["aquiz"] = all_questions
+# Build the mixed "aquiz"
+quizzes["aquiz"] = [q for qs in quizzes.values() for q in qs]
 
 shuffled_quizzes: dict[str, list] = {}
+
 def reset_shuffled(quiz_type: str):
     shuffled_quizzes[quiz_type] = copy.deepcopy(quizzes[quiz_type])
     random.shuffle(shuffled_quizzes[quiz_type])
@@ -89,18 +94,19 @@ for qt in quizzes:
 async def cmd_start(message: types.Message):
     user = message.from_user
     await ensure_user(user.id, user.username or user.full_name)
-    # build keyboard
-    kb = InlineKeyboardBuilder()
-    kb.row(
+
+    kb = types.InlineKeyboardMarkup(row_width=2)
+    kb.add(
         InlineKeyboardButton(text="Updates", url="https://t.me/WorkGlows"),
         InlineKeyboardButton(text="Support", url="https://t.me/TheCryptoElders"),
     )
-    kb.row(
+    kb.add(
         InlineKeyboardButton(
             text="Add Me To Your Group",
             url=f"https://t.me/{(await bot.get_me()).username}?startgroup=true"
         )
     )
+
     text = (
         f"👋 Hey {user.get_mention(as_html=True)}!\n\n"
         "✨ Welcome to the Ultimate Quiz Challenge Bot! ✨\n\n"
@@ -117,7 +123,7 @@ async def cmd_start(message: types.Message):
         "👉 Use /help if you need guidance.\n\n"
         "🎉 LET'S PLAY & HAVE FUN!"
     )
-    await message.answer(text, parse_mode="HTML", reply_markup=kb.as_markup())
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
 
 async def cmd_help(message: types.Message):
     text = (
@@ -139,6 +145,7 @@ async def cmd_help(message: types.Message):
 async def send_quiz(message: types.Message, quiz_type: str):
     if quiz_type not in quizzes:
         return
+
     if not shuffled_quizzes.get(quiz_type):
         reset_shuffled(quiz_type)
     if not shuffled_quizzes[quiz_type]:
@@ -146,22 +153,24 @@ async def send_quiz(message: types.Message, quiz_type: str):
         return
 
     q_text, options, correct_id = shuffled_quizzes[quiz_type].pop()
-    poll_msg = await message.answer_poll(
-        question=q_text,
-        options=options,
-        type=Poll.QUIZ,
-        correct_option_id=correct_id,
-        is_anonymous=False,
-        open_period=60,
-    )
-    # store mapping of poll_id → correct answer
-    dp.data[poll_msg.poll.id] = {
-        "correct_option_id": correct_id,
-        "message_id": poll_msg.message_id,
-        "chat_id": message.chat.id,
-    }
+    try:
+        poll_msg = await message.answer_poll(
+            question=q_text,
+            options=options,
+            type=Poll.QUIZ,
+            correct_option_id=correct_id,
+            is_anonymous=False,
+            open_period=60,
+        )
+        dp.data[poll_msg.poll.id] = {
+            "correct_option_id": correct_id,
+            "message_id": poll_msg.message_id,
+            "chat_id": message.chat.id,
+        }
+    except Exception as e:
+        logger.error("Failed to send quiz poll: %s", e)
 
-# Quiz command shortcuts
+# Command shortcuts
 async def cmd_xquiz(message: types.Message):  await send_quiz(message, "xquiz")
 async def cmd_hquiz(message: types.Message):  await send_quiz(message, "hquiz")
 async def cmd_fquiz(message: types.Message):  await send_quiz(message, "fquiz")
@@ -174,22 +183,19 @@ async def handle_poll_answer(event: types.PollAnswer):
     user_id = event.user.id
     selected = event.option_ids[0]
     info = dp.data.get(event.poll_id, {})
-    correct = (selected == info.get("correct_option_id"))
+    correct = (selected == info.get("correct_option_id", -1))
     await ensure_user(user_id, event.user.username or event.user.full_name)
     await update_score(user_id, correct)
 
 async def cmd_statistics(message: types.Message):
-    async with aiosqlite.connect(DATABASE_PATH) as db:
-        cursor = await db.execute(
-            "SELECT user_id, username, wins, losses "
-            "FROM users ORDER BY wins DESC, losses ASC LIMIT 10"
-        )
-        rows = await cursor.fetchall()
-
+    rows = await db.execute_fetchall(
+        "SELECT user_id, username, wins, losses "
+        "FROM users ORDER BY wins DESC, losses ASC LIMIT 10"
+    )
     if not rows:
-        msg = await message.answer("No players yet!")
+        temp = await message.answer("No players yet!")
         await asyncio.sleep(60)
-        await msg.delete()
+        await temp.delete()
         return
 
     text = "<b>🏆 Quiz Global Leaderboard 🏆</b>\n\n"
@@ -215,7 +221,7 @@ async def main():
     bot = Bot(TOKEN, parse_mode="HTML")
     dp = Dispatcher()
 
-    # Initialize DB
+    # Init DB
     await init_db()
 
     # Register handlers
@@ -231,7 +237,7 @@ async def main():
     dp.message.register(cmd_statistics,Command(commands=["statistics"]))
     dp.poll_answer.register(handle_poll_answer)
 
-    # Set bot commands shown in interface
+    # Set bot commands
     commands = [
         BotCommand("start", "Start the bot"),
         BotCommand("help", "How to use the bot"),
@@ -241,13 +247,25 @@ async def main():
         BotCommand("lolquiz","Funny Quiz 😂"),
         BotCommand("cquiz","Crazy Quiz 🤪"),
         BotCommand("squiz","Study Quiz 📚"),
-        BotCommand("aquiz","All Random Quiz 🎲"),
+        BotCommand("aquiz","Random Quiz 🎲"),
         BotCommand("statistics","Show leaderboard 📊"),
     ]
     await bot.set_my_commands(commands)
 
+    # Graceful shutdown on SIGINT/SIGTERM
+    loop = asyncio.get_running_loop()
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        loop.add_signal_handler(sig, lambda: asyncio.create_task(shutdown()))
+
     # Start polling
     await dp.start_polling(bot)
+
+async def shutdown():
+    """Cleanup tasks on shutdown."""
+    logger.info("Shutting down, closing database...")
+    await close_db()
+    await bot.session.close()
+    sys.exit(0)
 
 if __name__ == "__main__":
     asyncio.run(main())
